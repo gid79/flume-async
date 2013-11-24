@@ -4,3 +4,11 @@
 *.jar
 *.war
 *.ear
+
+target
+build
+.idea
+*.iws
+*.ipr
+*.iml
+
