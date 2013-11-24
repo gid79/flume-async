@@ -47,7 +47,10 @@ import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
+import java.util.Queue;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
 
 /**
  * Helpers for Netty Avro RPC testing
@@ -161,6 +164,30 @@ public class RpcTestUtils {
   }
 
   /**
+   * Helper method for constructing a Netty RPC client that talks to localhost.
+   */
+  public static AsyncNettyAvroRpcClient getStockAsyncLocalClient(int port) {
+    Properties props = new Properties();
+
+    return getStockAsyncLocalClient(port, props);
+  }
+
+  public static AsyncNettyAvroRpcClient getStockAsyncLocalClient(int port, Properties starterProp) {
+    starterProp.setProperty(RpcClientConfigurationConstants.CONFIG_HOSTS, "h1");
+    starterProp.setProperty(RpcClientConfigurationConstants.CONFIG_HOSTS_PREFIX + "h1",
+        "127.0.0.1" + ":" + port);
+
+    AsyncNettyAvroRpcClient client = new AsyncNettyAvroRpcClient(
+        NettySocketChannels.newSocketChannelFactory(),
+        new LoggingOnlyCallback(),
+        new TimeoutGenerator());
+
+    client.configure(starterProp);
+
+    return client;
+  }
+
+  /**
    * Start a NettyServer, wait a moment for it to spin up, and return it.
    */
   public static Server startServer(AvroSourceProtocol handler, int port, boolean enableCompression) {
@@ -214,6 +241,12 @@ public class RpcTestUtils {
       logger.error("Thread interrupted. Exception follows.", ex);
       Thread.currentThread().interrupt();
     }
+  }
+
+  public static abstract class RecordingAvroHandler implements AvroSourceProtocol {
+    private BlockingQueue<AvroFlumeEvent> events = new LinkedBlockingQueue<AvroFlumeEvent>();
+
+    public BlockingQueue<AvroFlumeEvent> events() { return events; }
   }
 
   public static class LoadBalancedAvroHandler implements AvroSourceProtocol {
@@ -273,12 +306,15 @@ public class RpcTestUtils {
   /**
    * A service that logs receipt of the request and returns OK
    */
-  public static class OKAvroHandler implements AvroSourceProtocol {
+  public static class OKAvroHandler
+      extends RecordingAvroHandler
+      implements AvroSourceProtocol {
 
     @Override
     public Status append(AvroFlumeEvent event) throws AvroRemoteException {
       logger.info("OK: Received event from append(): {}",
           new String(event.getBody().array(), Charset.forName("UTF8")));
+      events().add(event);
       return Status.OK;
     }
 
@@ -287,6 +323,8 @@ public class RpcTestUtils {
         AvroRemoteException {
       logger.info("OK: Received {} events from appendBatch()",
           events.size());
+
+      events().addAll(events);
       return Status.OK;
     }
 
