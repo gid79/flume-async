@@ -19,6 +19,7 @@ class TimeoutGenerator {
 
   private Semaphore threadRequired = new Semaphore(1);
 
+  private volatile Thread worker ;
   private volatile int threadId = 1;
 
   public void registerTimeout( Timeout timeout ) {
@@ -30,12 +31,28 @@ class TimeoutGenerator {
       t.setName("Timeout Generator " + threadId );
       threadId += 1;
       t.start();
+      worker = t;
     }
   }
 
   public void cancelTimeout( Timeout timeout ) {
     if( !timeout.isCancelled() ) {
       delayQueue.remove(timeout);
+    }
+  }
+
+  public void shutdown() {
+    Thread t = worker;
+    if( t != null && t.isAlive() ) {
+      t.interrupt();
+      try {
+        t.join(300);
+      } catch (InterruptedException e) {
+        logger.info("Interrupted while waiting for worker to finish");
+      }
+      if( t.isAlive() ) {
+        logger.info("Worker thread is still alive after being asked to finish, will ignore");
+      }
     }
   }
 
@@ -58,6 +75,7 @@ class TimeoutGenerator {
       } catch (InterruptedException e) {
         logger.info("TimeoutWorker has been interrupted, will finish");
       } finally {
+        worker = null;
         threadRequired.release();
       }
     }

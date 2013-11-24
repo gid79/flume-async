@@ -33,10 +33,17 @@ public class AsyncNettyAvroRpcClient extends AbstractNettyAvroRpcClient {
   private final AsyncRpcClientCallback callback;
 
   private final TimeoutGenerator timeoutGenerator ;
+  private final boolean sharedTimeoutGenerator ;
 
   private static final Logger logger = LoggerFactory
       .getLogger(NettyAvroRpcClient.class);
 
+  public AsyncNettyAvroRpcClient() {
+
+    this.callback = new LoggingOnlyCallback();
+    this.timeoutGenerator = new TimeoutGenerator();
+    this.sharedTimeoutGenerator = false;
+  }
 
   public AsyncNettyAvroRpcClient(
       ChannelFactory socketChannelFactory,
@@ -45,6 +52,7 @@ public class AsyncNettyAvroRpcClient extends AbstractNettyAvroRpcClient {
     super(socketChannelFactory);
     this.callback = callback;
     this.timeoutGenerator = timeoutGenerator;
+    this.sharedTimeoutGenerator = true;
   }
 
   @Override
@@ -118,6 +126,13 @@ public class AsyncNettyAvroRpcClient extends AbstractNettyAvroRpcClient {
   @Override
   protected void connected() throws IOException {
     SpecificRequestor.getRemote(avroClient);
+  }
+
+  @Override
+  public synchronized void close() {
+    if( !sharedTimeoutGenerator )
+      timeoutGenerator.shutdown();
+    super.close();
   }
 
   private class AsyncAvroCallback implements Callback<Status>, Timeout {
