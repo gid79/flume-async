@@ -37,14 +37,8 @@ public class AsyncNettyAvroRpcClient extends AbstractNettyAvroRpcClient {
   private static final Logger logger = LoggerFactory
       .getLogger(NettyAvroRpcClient.class);
 
-  public AsyncNettyAvroRpcClient() {
-
-    this.callback = new LoggingOnlyCallback();
-    this.timeoutGenerator = new TimeoutGenerator();
-  }
-
   public AsyncNettyAvroRpcClient(
-      ChannelFactory socketChannelFactory,
+      SharableChannelFactory socketChannelFactory,
       AsyncRpcClientCallback callback,
       TimeoutGenerator timeoutGenerator) {
     super(socketChannelFactory);

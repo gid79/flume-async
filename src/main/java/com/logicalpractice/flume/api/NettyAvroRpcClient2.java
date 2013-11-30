@@ -34,54 +34,15 @@ public class NettyAvroRpcClient2 extends AbstractNettyAvroRpcClient {
   private static final Logger logger = LoggerFactory
       .getLogger(NettyAvroRpcClient2.class);
 
-
-  public NettyAvroRpcClient2() {
-    super();
-  }
   /**
    * This constructor is intended to be called from {@link org.apache.flume.api.RpcClientFactory}.
    * A call to this constructor should be followed by call to configure().
    */
-  public NettyAvroRpcClient2(ChannelFactory socketChannelFactory){
+  public NettyAvroRpcClient2(SharableChannelFactory socketChannelFactory,
+                             ExecutorService callTimeoutPool){
     super(socketChannelFactory);
+    this.callTimeoutPool = callTimeoutPool;
   }
-
-  /**
-   * Internal only, for now
-   * @throws FlumeException
-   */
-  protected void connected() throws FlumeException {
-    callTimeoutPool = Executors.newCachedThreadPool(
-        new PrefixedDaemonThreadFactory("Flume Avro RPC Client Call Invoker"));
-  }
-
-  @Override
-  public void close() throws FlumeException {
-    if (callTimeoutPool != null) {
-      callTimeoutPool.shutdown();
-      try {
-        if (!callTimeoutPool.awaitTermination(requestTimeout,
-            TimeUnit.MILLISECONDS)) {
-          callTimeoutPool.shutdownNow();
-          if (!callTimeoutPool.awaitTermination(requestTimeout,
-              TimeUnit.MILLISECONDS)) {
-            logger.warn(this + ": Unable to cleanly shut down call timeout " +
-                "pool");
-          }
-        }
-      } catch (InterruptedException ex) {
-        logger.warn(this + ": Interrupted during close", ex);
-        // re-cancel if current thread also interrupted
-        callTimeoutPool.shutdownNow();
-        // preserve interrupt status
-        Thread.currentThread().interrupt();
-      }
-
-      callTimeoutPool = null;
-    }
-    super.close();
-  }
-
 
   @Override
   public void append(Event event) throws EventDeliveryException {
@@ -94,9 +55,8 @@ public class NettyAvroRpcClient2 extends AbstractNettyAvroRpcClient {
       if (t instanceof Error) {
         throw (Error) t;
       }
-      if (t instanceof TimeoutException) {
-        throw new EventDeliveryException(this + ": Failed to send event. " +
-            "RPC request timed out after " + requestTimeout + "ms", t);
+      if (t instanceof EventDeliveryException) {
+        throw (EventDeliveryException)t;
       }
       throw new EventDeliveryException(this + ": Failed to send event", t);
     }
@@ -159,9 +119,8 @@ public class NettyAvroRpcClient2 extends AbstractNettyAvroRpcClient {
       if (t instanceof Error) {
         throw (Error) t;
       }
-      if (t instanceof TimeoutException) {
-        throw new EventDeliveryException(this + ": Failed to send event. " +
-            "RPC request timed out after " + requestTimeout + " ms", t);
+      if (t instanceof EventDeliveryException) {
+        throw (EventDeliveryException)t;
       }
       throw new EventDeliveryException(this + ": Failed to send batch", t);
     }
@@ -254,6 +213,4 @@ public class NettyAvroRpcClient2 extends AbstractNettyAvroRpcClient {
       throw new EventDeliveryException(this + ": RPC request interrupted", ex);
     }
   }
-
-
 }

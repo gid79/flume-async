@@ -31,7 +31,7 @@ public abstract class AbstractNettyAvroRpcClient extends AbstractRpcClient {
     INIT, READY, DEAD
   }
 
-  private ChannelFactory socketChannelFactory;
+  private SharableChannelFactory socketChannelFactory;
 
   final ReentrantLock stateLock = new ReentrantLock();
 
@@ -46,11 +46,7 @@ public abstract class AbstractNettyAvroRpcClient extends AbstractRpcClient {
 
   protected AvroSourceProtocol.Callback avroClient;
 
-
-  protected AbstractNettyAvroRpcClient() {
-  }
-
-  protected AbstractNettyAvroRpcClient(ChannelFactory socketChannelFactory) {
+  protected AbstractNettyAvroRpcClient(SharableChannelFactory socketChannelFactory) {
     this.socketChannelFactory = socketChannelFactory;
   }
 
@@ -73,7 +69,7 @@ public abstract class AbstractNettyAvroRpcClient extends AbstractRpcClient {
     try {
 
       transceiver = new NettyTransceiver(this.address,
-          socketChannelFactory,
+          socketChannelFactory.releaseSuppressing(),
           tu.toMillis(timeout));
       avroClient =
           SpecificRequestor.getClient(AvroSourceProtocol.Callback.class,
@@ -275,10 +271,6 @@ public abstract class AbstractNettyAvroRpcClient extends AbstractRpcClient {
       }
     }
 
-    if( socketChannelFactory == null ) {
-      NettyConfiguration.Builder config = NettyConfiguration.fromProperties(properties);
-      socketChannelFactory = NettySocketChannels.newSocketChannelFactory(config.build());
-    }
     this.connect();
   }
 
@@ -293,11 +285,6 @@ public abstract class AbstractNettyAvroRpcClient extends AbstractRpcClient {
       if( transceiver != null ) {
         transceiver.close();
         transceiver = null;
-      } else if( socketChannelFactory != null ){
-        // might need to release this if the transceiver if not initialised.
-        // if the channelFactory is shared it'll be a noop
-        socketChannelFactory.releaseExternalResources();
-        socketChannelFactory = null;
       }
     } catch (IOException ex) {
       throw new FlumeException(this + ": Error closing transceiver.", ex);

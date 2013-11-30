@@ -9,7 +9,7 @@ import org.jboss.netty.channel.ChannelPipeline;
  *
  * The Avro NettyTransceiver calls 'releaseExternalResources' on being closed.
  */
-class ReleaseSuppressingChannelFactory implements ChannelFactory {
+class ReleaseSuppressingChannelFactory implements SharableChannelFactory {
   
   private final ChannelFactory delegate;
 
@@ -25,5 +25,10 @@ class ReleaseSuppressingChannelFactory implements ChannelFactory {
   @Override
   public void releaseExternalResources() {
     // not 
+  }
+
+  @Override
+  public SharableChannelFactory releaseSuppressing() {
+    return this; // it's a bit circular to say the least
   }
 }

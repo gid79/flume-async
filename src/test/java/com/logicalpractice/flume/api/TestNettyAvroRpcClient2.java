@@ -38,6 +38,7 @@ import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
+import java.util.concurrent.Executors;
 
 /**
  * this is basically a complete copy of the TestNettyAvroRpcClient from the flume source tree.
@@ -169,7 +170,9 @@ public class TestNettyAvroRpcClient2 {
   @Test(expected=FlumeException.class)
   public void testUnableToConnect() throws FlumeException {
     @SuppressWarnings("unused")
-    NettyAvroRpcClient2 client = new NettyAvroRpcClient2(NettySocketChannels.newSocketChannelFactory());
+    NettyAvroRpcClient2 client = new NettyAvroRpcClient2(
+        NettySocketChannels.newSocketChannelFactory(),
+        Executors.newCachedThreadPool());
     try {
       Properties props = new Properties();
       props.setProperty(RpcClientConfigurationConstants.CONFIG_HOSTS, "localhost");
@@ -199,7 +202,10 @@ public class TestNettyAvroRpcClient2 {
         localhost + ":" + server.getPort());
     props.setProperty(RpcClientConfigurationConstants.CONFIG_BATCH_SIZE, "" + batchSize);
     try {
-      client = new NettyAvroRpcClient2(NettySocketChannels.newSocketChannelFactory());
+      client = new NettyAvroRpcClient2(
+          NettySocketChannels.newSocketChannelFactory(),
+          Executors.newCachedThreadPool()
+      );
       client.configure(props);
 
       // send one more than the batch size

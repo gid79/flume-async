@@ -18,7 +18,7 @@
  */
 package com.logicalpractice.flume.api;
 
-import junit.framework.Assert;
+import org.junit.Assert;
 import org.apache.avro.AvroRemoteException;
 import org.apache.avro.ipc.NettyServer;
 import org.apache.avro.ipc.Responder;
@@ -157,7 +157,9 @@ public class RpcTestUtils {
     starterProp.setProperty(RpcClientConfigurationConstants.CONFIG_HOSTS, "h1");
     starterProp.setProperty(RpcClientConfigurationConstants.CONFIG_HOSTS_PREFIX + "h1",
         "127.0.0.1" + ":" + port);
-    NettyAvroRpcClient2 client = new NettyAvroRpcClient2();
+    NettyAvroRpcClient2 client = new NettyAvroRpcClient2(
+        NettySocketChannels.newSocketChannelFactory(NettyConfiguration.fromProperties(starterProp).build()),
+        Executors.newCachedThreadPool());
     client.configure(starterProp);
 
     return client;

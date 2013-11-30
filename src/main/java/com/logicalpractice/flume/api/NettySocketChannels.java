@@ -1,6 +1,8 @@
 package com.logicalpractice.flume.api;
 
 import org.apache.avro.ipc.NettyTransceiver;
+import org.jboss.netty.channel.Channel;
+import org.jboss.netty.channel.ChannelFactory;
 import org.jboss.netty.channel.ChannelPipeline;
 import org.jboss.netty.channel.socket.SocketChannel;
 import org.jboss.netty.channel.socket.nio.NioClientSocketChannelFactory;
@@ -29,11 +31,11 @@ import java.util.concurrent.Executors;
  */
 public class NettySocketChannels {
 
-  public static NioClientSocketChannelFactory newSocketChannelFactory() {
+  public static SharableChannelFactory newSocketChannelFactory() {
     return newSocketChannelFactory(NettyConfiguration.newBuilder().build());
   }
 
-  public static NioClientSocketChannelFactory newSocketChannelFactory(NettyConfiguration configuration) {
+  public static SharableChannelFactory newSocketChannelFactory(NettyConfiguration configuration) {
     if( configuration == null ) {
       throw new IllegalArgumentException("'configuration' is required");
     }
@@ -55,10 +57,30 @@ public class NettySocketChannels {
           bossExecutor,
           workerExecutor);
     }
-    return socketChannelFactory;
+    return sharableChannelFactory(socketChannelFactory);
   }
 
-  /**
+  public static SharableChannelFactory sharableChannelFactory(final ChannelFactory socketChannelFactory) {
+    return new SharableChannelFactory() {
+      final ReleaseSuppressingChannelFactory releaseSuppressing = new ReleaseSuppressingChannelFactory(socketChannelFactory);
+      @Override
+      public SharableChannelFactory releaseSuppressing() {
+        return releaseSuppressing;
+      }
+
+      @Override
+      public Channel newChannel(ChannelPipeline pipeline) {
+        return socketChannelFactory.newChannel(pipeline);
+      }
+
+      @Override
+      public void releaseExternalResources() {
+        socketChannelFactory.releaseExternalResources();
+      }
+    };
+  }
+
+    /**
    * Factory of SSL-enabled client channels
    * Copied from Avro's org.apache.flume.api.NettyAvroRpcClient
    */
