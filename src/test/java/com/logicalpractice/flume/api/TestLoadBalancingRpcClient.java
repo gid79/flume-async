@@ -27,13 +27,12 @@ import java.util.Properties;
 import java.util.Set;
 
 import org.junit.Assert;
+import static org.hamcrest.Matchers.*;
 
 import org.apache.avro.ipc.Server;
 import org.apache.flume.Event;
 import org.apache.flume.EventDeliveryException;
-import org.apache.flume.FlumeException;
 import com.logicalpractice.flume.api.RpcTestUtils.LoadBalancedAvroHandler;
-import com.logicalpractice.flume.api.RpcTestUtils.OKAvroHandler;
 import org.apache.flume.api.RpcClient;
 import org.apache.flume.api.RpcClientFactory;
 import org.apache.flume.event.EventBuilder;
@@ -41,25 +40,69 @@ import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.*;
+import static org.junit.Assert.fail;
+
 public class TestLoadBalancingRpcClient {
   private static final Logger LOGGER = LoggerFactory
       .getLogger(TestLoadBalancingRpcClient.class);
 
 
-  @Test(expected=FlumeException.class)
-  public void testCreatingLbClientSingleHost() {
+  @Test
+  public void testCreatingLbClientSingleHost() throws EventDeliveryException {
     Server server1 = null;
     RpcClient c = null;
     try {
-      server1 = RpcTestUtils.startServer(new OKAvroHandler());
+      LoadBalancedAvroHandler handler = new LoadBalancedAvroHandler();
+      server1 = RpcTestUtils.startServer(handler);
       Properties p = new Properties();
-      p.put("host1", "127.0.0.1:" + server1.getPort());
-      p.put("hosts", "host1");
-      p.put("client.type", "com.logicalpractice.flume.api.LoadBalancingRpcClient");
-      RpcClientFactory.getInstance(p);
+      p.put("hosts.h1", "127.0.0.1:" + server1.getPort());
+      p.put("hosts", "h1");
+      p.put("client.type", "com.logicalpractice.flume.api.NettyLoadBalancingRpcClient");
+      c = RpcClientFactory.getInstance(p);
+
+      c.append(getEvent(0));
+
+      assertThat(handler.getAppendCount(), equalTo(1));
     } finally {
-      if (server1 != null) server1.close();
       if (c != null) c.close();
+      if (server1 != null) server1.close();
+    }
+  }
+
+  @Test
+  public void testSingleHostConnectFailReconnect() throws EventDeliveryException {
+    Server server1 = null;
+    RpcClient c = null;
+    try {
+      LoadBalancedAvroHandler handler = new LoadBalancedAvroHandler();
+      server1 = RpcTestUtils.startServer(handler);
+      Properties p = new Properties();
+      p.put("hosts.h1", "127.0.0.1:" + server1.getPort());
+      p.put("hosts", "h1");
+      p.put("client.type", "com.logicalpractice.flume.api.NettyLoadBalancingRpcClient");
+      c = RpcClientFactory.getInstance(p);
+
+      c.append(getEvent(0));
+
+      handler.setFailed();
+
+      try {
+        c.append(getEvent(1));
+        fail("Expecting EventDeliveryException, the handler rejected the event");
+      } catch (EventDeliveryException e) {
+        // should fail
+      }
+
+      handler.setOK();
+
+      c.append(getEvent(2));
+
+      assertThat(handler.getAppendCount(), equalTo(2));
+    } finally {
+      if (c != null) c.close();
+      if (server1 != null) server1.close();
     }
   }
 
@@ -76,12 +119,12 @@ public class TestLoadBalancingRpcClient {
 
       Properties p = new Properties();
       p.put("hosts", "h1 h2");
-      p.put("client.type", "com.logicalpractice.flume.api.LoadBalancingRpcClient");
+      p.put("client.type", "com.logicalpractice.flume.api.NettyLoadBalancingRpcClient");
       p.put("hosts.h1", "127.0.0.1:" + s1.getPort());
       p.put("hosts.h2", "127.0.0.1:" + s2.getPort());
 
       c = RpcClientFactory.getInstance(p);
-      Assert.assertTrue(c instanceof com.logicalpractice.flume.api.LoadBalancingRpcClient);
+      Assert.assertTrue(c instanceof NettyLoadBalancingRpcClient);
 
       for (int i = 0; i < 100; i++) {
         if (i == 20) {
@@ -92,8 +135,11 @@ public class TestLoadBalancingRpcClient {
         c.append(getEvent(i));
       }
 
-      Assert.assertEquals(60, h1.getAppendCount());
-      Assert.assertEquals(40, h2.getAppendCount());
+      int totalReceived = h1.getAppendCount() + h2.getAppendCount();
+      assertThat(totalReceived, equalTo(100));
+
+      double ratio = (double) h2.getAppendCount() / (double) h1.getAppendCount();
+      assertThat(ratio, closeTo(4.0d/6.0d, 0.05d));
     } finally {
       if (s1 != null) s1.close();
       if (s2 != null) s2.close();
@@ -107,20 +153,20 @@ public class TestLoadBalancingRpcClient {
     Server s1 = null, s2 = null;
     RpcClient c = null;
     try{
-      LoadBalancedAvroHandler h1 = new LoadBalancedAvroHandler();
-      LoadBalancedAvroHandler h2 = new LoadBalancedAvroHandler();
+      LoadBalancedAvroHandler h1 = new LoadBalancedAvroHandler(1);
+      LoadBalancedAvroHandler h2 = new LoadBalancedAvroHandler(2);
 
       s1 = RpcTestUtils.startServer(h1);
       s2 = RpcTestUtils.startServer(h2);
 
       Properties p = new Properties();
       p.put("hosts", "h1 h2");
-      p.put("client.type", "com.logicalpractice.flume.api.LoadBalancingRpcClient");
+      p.put("client.type", "com.logicalpractice.flume.api.NettyLoadBalancingRpcClient");
       p.put("hosts.h1", "127.0.0.1:" + s1.getPort());
       p.put("hosts.h2", "127.0.0.1:" + s2.getPort());
 
       c = RpcClientFactory.getInstance(p);
-      Assert.assertTrue(c instanceof com.logicalpractice.flume.api.LoadBalancingRpcClient);
+      Assert.assertTrue(c instanceof NettyLoadBalancingRpcClient);
 
       for (int i = 0; i < 100; i++) {
         if (i == 20) {
@@ -131,11 +177,15 @@ public class TestLoadBalancingRpcClient {
         c.append(getEvent(i));
       }
 
-      Assert.assertEquals(60, h1.getAppendCount());
-      Assert.assertEquals(40, h2.getAppendCount());
+      int totalReceived = h1.getAppendCount() + h2.getAppendCount();
+      assertThat(totalReceived, equalTo(100));
+
+      double ratio = (double) h2.getAppendCount() / (double) h1.getAppendCount();
+      assertThat(ratio, closeTo(4.0d/6.0d, 0.05d));
+
       if (c != null) c.close();
       c.append(getEvent(3));
-      Assert.fail();
+      fail();
     } finally {
       if (s1 != null) s1.close();
       if (s2 != null) s2.close();
@@ -158,13 +208,13 @@ public class TestLoadBalancingRpcClient {
 
       Properties p = new Properties();
       p.put("hosts", "h1 h2");
-      p.put("client.type", "com.logicalpractice.flume.api.LoadBalancingRpcClient");
+      p.put("client.type", "com.logicalpractice.flume.api.NettyLoadBalancingRpcClient");
       p.put("hosts.h1", "127.0.0.1:" + 0); // port 0 should always be closed
       p.put("hosts.h2", "127.0.0.1:" + s1.getPort());
 
       // test batch API
       c1 = RpcClientFactory.getInstance(p);
-      Assert.assertTrue(c1 instanceof com.logicalpractice.flume.api.LoadBalancingRpcClient);
+      Assert.assertTrue(c1 instanceof NettyLoadBalancingRpcClient);
 
       for (int i = 0; i < 10; i++) {
         c1.appendBatch(getBatchedEvent(i));
@@ -173,7 +223,7 @@ public class TestLoadBalancingRpcClient {
 
       // test non-batch API
       c2 = RpcClientFactory.getInstance(p);
-      Assert.assertTrue(c2 instanceof com.logicalpractice.flume.api.LoadBalancingRpcClient);
+      Assert.assertTrue(c2 instanceof NettyLoadBalancingRpcClient);
 
       for (int i = 0; i < 10; i++) {
         c2.append(getEvent(i));
@@ -193,20 +243,20 @@ public class TestLoadBalancingRpcClient {
     Server s1 = null, s2 = null;
     RpcClient c = null;
     try{
-      LoadBalancedAvroHandler h1 = new LoadBalancedAvroHandler();
-      LoadBalancedAvroHandler h2 = new LoadBalancedAvroHandler();
+      LoadBalancedAvroHandler h1 = new LoadBalancedAvroHandler(1);
+      LoadBalancedAvroHandler h2 = new LoadBalancedAvroHandler(2);
 
       s1 = RpcTestUtils.startServer(h1);
       s2 = RpcTestUtils.startServer(h2);
 
       Properties p = new Properties();
       p.put("hosts", "h1 h2");
-      p.put("client.type", "com.logicalpractice.flume.api.LoadBalancingRpcClient");
+      p.put("client.type", "com.logicalpractice.flume.api.NettyLoadBalancingRpcClient");
       p.put("hosts.h1", "127.0.0.1:" + s1.getPort());
       p.put("hosts.h2", "127.0.0.1:" + s2.getPort());
 
       c = RpcClientFactory.getInstance(p);
-      Assert.assertTrue(c instanceof com.logicalpractice.flume.api.LoadBalancingRpcClient);
+      Assert.assertTrue(c instanceof NettyLoadBalancingRpcClient);
 
       for (int i = 0; i < 100; i++) {
         if (i == 20) {
@@ -218,12 +268,16 @@ public class TestLoadBalancingRpcClient {
         c.appendBatch(getBatchedEvent(i));
       }
 
-      Assert.assertEquals(60, h1.getAppendBatchCount());
-      Assert.assertEquals(40, h2.getAppendBatchCount());
+      int totalReceived = h1.getAppendBatchCount() + h2.getAppendBatchCount();
+      double ratio = (double) h2.getAppendBatchCount() / (double) h1.getAppendBatchCount();
+
+      assertThat(totalReceived, equalTo(100));
+      assertThat(ratio, closeTo(4.0/6.0, 0.05));
+
     } finally {
+      if (c != null) c.close();
       if (s1 != null) s1.close();
       if (s2 != null) s2.close();
-      if (c != null) c.close();
     }
   }
 
@@ -232,27 +286,33 @@ public class TestLoadBalancingRpcClient {
     Server s1 = null, s2 = null;
     RpcClient c = null;
     try{
-      LoadBalancedAvroHandler h1 = new LoadBalancedAvroHandler();
-      LoadBalancedAvroHandler h2 = new LoadBalancedAvroHandler();
+      LoadBalancedAvroHandler h1 = new LoadBalancedAvroHandler(1);
+      LoadBalancedAvroHandler h2 = new LoadBalancedAvroHandler(2);
 
       s1 = RpcTestUtils.startServer(h1);
       s2 = RpcTestUtils.startServer(h2);
 
       Properties p = new Properties();
       p.put("hosts", "h1 h2");
-      p.put("client.type", "com.logicalpractice.flume.api.LoadBalancingRpcClient");
+      p.put("client.type", "com.logicalpractice.flume.api.NettyLoadBalancingRpcClient");
       p.put("hosts.h1", "127.0.0.1:" + s1.getPort());
       p.put("hosts.h2", "127.0.0.1:" + s2.getPort());
 
       c = RpcClientFactory.getInstance(p);
-      Assert.assertTrue(c instanceof com.logicalpractice.flume.api.LoadBalancingRpcClient);
+      Assert.assertTrue(c instanceof NettyLoadBalancingRpcClient);
 
       for (int i = 0; i < 100; i++) {
         c.append(getEvent(i));
       }
 
-      Assert.assertEquals(50, h1.getAppendCount());
-      Assert.assertEquals(50, h2.getAppendCount());
+      int totalReceived = h1.getAppendCount() + h2.getAppendCount();
+      assertThat(totalReceived, equalTo(100));
+
+      double ratio = (double) h2.getAppendCount() / (double) h1.getAppendCount();
+      assertThat(ratio, closeTo(1.0d, 0.05d));
+
+//      Assert.assertEquals(50, h1.getAppendCount());
+//      Assert.assertEquals(50, h2.getAppendCount());
     } finally {
       if (s1 != null) s1.close();
       if (s2 != null) s2.close();
@@ -265,27 +325,31 @@ public class TestLoadBalancingRpcClient {
     Server s1 = null, s2 = null;
     RpcClient c = null;
     try{
-      LoadBalancedAvroHandler h1 = new LoadBalancedAvroHandler();
-      LoadBalancedAvroHandler h2 = new LoadBalancedAvroHandler();
+      LoadBalancedAvroHandler h1 = new LoadBalancedAvroHandler(1);
+      LoadBalancedAvroHandler h2 = new LoadBalancedAvroHandler(2);
 
       s1 = RpcTestUtils.startServer(h1);
       s2 = RpcTestUtils.startServer(h2);
 
       Properties p = new Properties();
       p.put("hosts", "h1 h2");
-      p.put("client.type", "com.logicalpractice.flume.api.LoadBalancingRpcClient");
+      p.put("client.type", "com.logicalpractice.flume.api.NettyLoadBalancingRpcClient");
       p.put("hosts.h1", "127.0.0.1:" + s1.getPort());
       p.put("hosts.h2", "127.0.0.1:" + s2.getPort());
 
       c = RpcClientFactory.getInstance(p);
-      Assert.assertTrue(c instanceof com.logicalpractice.flume.api.LoadBalancingRpcClient);
+      Assert.assertTrue(c instanceof NettyLoadBalancingRpcClient);
 
       for (int i = 0; i < 100; i++) {
         c.appendBatch(getBatchedEvent(i));
       }
 
-      Assert.assertEquals(50, h1.getAppendBatchCount());
-      Assert.assertEquals(50, h2.getAppendBatchCount());
+      int totalReceived = h1.getAppendBatchCount() + h2.getAppendBatchCount();
+      double ratio = (double) h2.getAppendBatchCount() / (double) h1.getAppendBatchCount();
+
+      assertThat(totalReceived, equalTo(100));
+      assertThat(ratio, closeTo(1.0, 0.05d));
+
     } finally {
       if (s1 != null) s1.close();
       if (s2 != null) s2.close();
@@ -304,7 +368,7 @@ public class TestLoadBalancingRpcClient {
       Properties p = new Properties();
       StringBuilder hostList = new StringBuilder("");
       for (int i = 0; i<NUM_HOSTS; i++) {
-        h[i] = new LoadBalancedAvroHandler();
+        h[i] = new LoadBalancedAvroHandler(i);
         s[i] = RpcTestUtils.startServer(h[i]);
         String name = "h" + i;
         p.put("hosts." + name, "127.0.0.1:" + s[i].getPort());
@@ -312,11 +376,11 @@ public class TestLoadBalancingRpcClient {
       }
 
       p.put("hosts", hostList.toString().trim());
-      p.put("client.type", "com.logicalpractice.flume.api.LoadBalancingRpcClient");
+      p.put("client.type", "com.logicalpractice.flume.api.NettyLoadBalancingRpcClient");
       p.put("host-selector", "random");
 
       c = RpcClientFactory.getInstance(p);
-      Assert.assertTrue(c instanceof com.logicalpractice.flume.api.LoadBalancingRpcClient);
+      Assert.assertTrue(c instanceof NettyLoadBalancingRpcClient);
 
       for (int i = 0; i < NUM_EVENTS; i++) {
         c.append(getEvent(i));
@@ -349,7 +413,7 @@ public class TestLoadBalancingRpcClient {
       Properties p = new Properties();
       StringBuilder hostList = new StringBuilder("");
       for (int i = 0; i<NUM_HOSTS; i++) {
-        h[i] = new LoadBalancedAvroHandler();
+        h[i] = new LoadBalancedAvroHandler(i);
         s[i] = RpcTestUtils.startServer(h[i]);
         String name = "h" + i;
         p.put("hosts." + name, "127.0.0.1:" + s[i].getPort());
@@ -357,11 +421,11 @@ public class TestLoadBalancingRpcClient {
       }
 
       p.put("hosts", hostList.toString().trim());
-      p.put("client.type", "com.logicalpractice.flume.api.LoadBalancingRpcClient");
+      p.put("client.type", "com.logicalpractice.flume.api.NettyLoadBalancingRpcClient");
       p.put("host-selector", "random");
 
       c = RpcClientFactory.getInstance(p);
-      Assert.assertTrue(c instanceof com.logicalpractice.flume.api.LoadBalancingRpcClient);
+      Assert.assertTrue(c instanceof NettyLoadBalancingRpcClient);
 
       for (int i = 0; i < NUM_EVENTS; i++) {
         c.appendBatch(getBatchedEvent(i));
@@ -394,7 +458,7 @@ public class TestLoadBalancingRpcClient {
       Properties p = new Properties();
       StringBuilder hostList = new StringBuilder("");
       for (int i = 0; i<NUM_HOSTS; i++) {
-        h[i] = new LoadBalancedAvroHandler();
+        h[i] = new LoadBalancedAvroHandler(i);
         s[i] = RpcTestUtils.startServer(h[i]);
         String name = "h" + i;
         p.put("hosts." + name, "127.0.0.1:" + s[i].getPort());
@@ -402,25 +466,26 @@ public class TestLoadBalancingRpcClient {
       }
 
       p.put("hosts", hostList.toString().trim());
-      p.put("client.type", "com.logicalpractice.flume.api.LoadBalancingRpcClient");
+      p.put("client.type", "com.logicalpractice.flume.api.NettyLoadBalancingRpcClient");
       p.put("host-selector", "round_robin");
 
       c = RpcClientFactory.getInstance(p);
-      Assert.assertTrue(c instanceof com.logicalpractice.flume.api.LoadBalancingRpcClient);
+      Assert.assertTrue(c instanceof NettyLoadBalancingRpcClient);
 
       for (int i = 0; i < NUM_EVENTS; i++) {
         c.append(getEvent(i));
       }
 
-      Set<Integer> counts = new HashSet<Integer>();
+      HashSet<Integer> counts = new HashSet<Integer>();
       int total = 0;
       for (LoadBalancedAvroHandler handler : h) {
         total += handler.getAppendCount();
         counts.add(handler.getAppendCount());
       }
 
-      Assert.assertTrue("Very unusual distribution", counts.size() == 1);
-      Assert.assertTrue("Missing events", total == NUM_EVENTS);
+      int perfect = NUM_EVENTS / NUM_HOSTS;
+      assertThat("Very unusual distribution", counts, anyOf(hasItem(perfect), hasItem(perfect + 1), hasItem(perfect - 1)));
+      assertThat("Missing events", total, equalTo(NUM_EVENTS));
     } finally {
       for (int i = 0; i<NUM_HOSTS; i++) {
         if (s[i] != null) s[i].close();
@@ -440,7 +505,7 @@ public class TestLoadBalancingRpcClient {
       Properties p = new Properties();
       StringBuilder hostList = new StringBuilder("");
       for (int i = 0; i<NUM_HOSTS; i++) {
-        h[i] = new LoadBalancedAvroHandler();
+        h[i] = new LoadBalancedAvroHandler(i);
         s[i] = RpcTestUtils.startServer(h[i]);
         String name = "h" + i;
         p.put("hosts." + name, "127.0.0.1:" + s[i].getPort());
@@ -448,25 +513,26 @@ public class TestLoadBalancingRpcClient {
       }
 
       p.put("hosts", hostList.toString().trim());
-      p.put("client.type", "com.logicalpractice.flume.api.LoadBalancingRpcClient");
+      p.put("client.type", "com.logicalpractice.flume.api.NettyLoadBalancingRpcClient");
       p.put("host-selector", "round_robin");
 
       c = RpcClientFactory.getInstance(p);
-      Assert.assertTrue(c instanceof com.logicalpractice.flume.api.LoadBalancingRpcClient);
+      Assert.assertTrue(c instanceof NettyLoadBalancingRpcClient);
 
       for (int i = 0; i < NUM_EVENTS; i++) {
         c.appendBatch(getBatchedEvent(i));
       }
 
-      Set<Integer> counts = new HashSet<Integer>();
+      HashSet<Integer> counts = new HashSet<Integer>();
       int total = 0;
       for (LoadBalancedAvroHandler handler : h) {
         total += handler.getAppendBatchCount();
         counts.add(handler.getAppendBatchCount());
       }
 
-      Assert.assertTrue("Very unusual distribution", counts.size() == 1);
-      Assert.assertTrue("Missing events", total == NUM_EVENTS);
+      int perfect = NUM_EVENTS / NUM_HOSTS;
+      assertThat("Very unusual distribution", counts, anyOf(hasItem(perfect), hasItem(perfect + 1), hasItem(perfect - 1)));
+      assertThat("Missing events", total, equalTo(NUM_EVENTS));
     } finally {
       for (int i = 0; i<NUM_HOSTS; i++) {
         if (s[i] != null) s[i].close();
@@ -491,14 +557,14 @@ public class TestLoadBalancingRpcClient {
       hostList.append(name).append(" ");
     }
     p.put("hosts", hostList.toString().trim());
-    p.put("client.type", "com.logicalpractice.flume.api.LoadBalancingRpcClient");
+    p.put("client.type", "com.logicalpractice.flume.api.NettyLoadBalancingRpcClient");
     p.put("host-selector", "random");
     p.put("backoff", "true");
     hosts.get(0).setFailed();
     hosts.get(2).setFailed();
 
     RpcClient c = RpcClientFactory.getInstance(p);
-    Assert.assertTrue(c instanceof com.logicalpractice.flume.api.LoadBalancingRpcClient);
+    Assert.assertTrue(c instanceof NettyLoadBalancingRpcClient);
 
     // TODO: there is a remote possibility that s0 or s2
     // never get hit by the random assignment
@@ -515,7 +581,7 @@ public class TestLoadBalancingRpcClient {
     try {
       c.append(EventBuilder.withBody("shouldfail".getBytes()));
       // nothing should be able to process right now
-      Assert.fail("Expected EventDeliveryException");
+      fail("Expected EventDeliveryException");
     } catch (EventDeliveryException e) {
       // this is expected
     }
@@ -537,7 +603,7 @@ public class TestLoadBalancingRpcClient {
     List<Server> servers = new ArrayList<Server>();
     StringBuilder hostList = new StringBuilder("");
     for (int i = 0; i < 3; i++) {
-      LoadBalancedAvroHandler s = new LoadBalancedAvroHandler();
+      LoadBalancedAvroHandler s = new LoadBalancedAvroHandler(i);
       hosts.add(s);
       Server srv = RpcTestUtils.startServer(s);
       servers.add(srv);
@@ -546,12 +612,12 @@ public class TestLoadBalancingRpcClient {
       hostList.append(name).append(" ");
     }
     p.put("hosts", hostList.toString().trim());
-    p.put("client.type", "com.logicalpractice.flume.api.LoadBalancingRpcClient");
+    p.put("client.type", "com.logicalpractice.flume.api.NettyLoadBalancingRpcClient");
     p.put("host-selector", "round_robin");
     p.put("backoff", "true");
 
     RpcClient c = RpcClientFactory.getInstance(p);
-    Assert.assertTrue(c instanceof com.logicalpractice.flume.api.LoadBalancingRpcClient);
+    Assert.assertTrue(c instanceof NettyLoadBalancingRpcClient);
 
     for (int i = 0; i < 3; i++) {
       c.append(EventBuilder.withBody("testing".getBytes()));
@@ -567,9 +633,18 @@ public class TestLoadBalancingRpcClient {
       c.append(EventBuilder.withBody("testing".getBytes()));
     }
 
-    Assert.assertEquals(1 + 2 + 1, hosts.get(0).getAppendCount());
-    Assert.assertEquals(1, hosts.get(1).getAppendCount());
-    Assert.assertEquals(1 + 1 + 2, hosts.get(2).getAppendCount());
+    int totalReceived = hosts.get(0).getAppendCount() + hosts.get(1).getAppendCount() + hosts.get(2).getAppendCount();
+
+    assertThat(totalReceived, equalTo(1 + 2 + 1 + 1 + 1 + 1 + 2));
+
+    // have to be a little fuzzy as the reconnects are asynchronous
+    assertThat((double)hosts.get(0).getAppendCount(), closeTo(4.0, 1.0));
+    assertThat(        hosts.get(1).getAppendCount(), equalTo(1)); // we can be certain about this one
+    assertThat((double)hosts.get(2).getAppendCount(), closeTo(4.0, 1.0));
+
+//    Assert.assertEquals(1 + 2 + 1, hosts.get(0).getAppendCount());
+//    Assert.assertEquals(1, hosts.get(1).getAppendCount());
+//    Assert.assertEquals(1 + 1 + 2, hosts.get(2).getAppendCount());
   }
 
   @Test
@@ -580,7 +655,7 @@ public class TestLoadBalancingRpcClient {
     List<Server> servers = new ArrayList<Server>();
     StringBuilder hostList = new StringBuilder("");
     for (int i = 0; i < 3; i++) {
-      LoadBalancedAvroHandler s = new LoadBalancedAvroHandler();
+      LoadBalancedAvroHandler s = new LoadBalancedAvroHandler(i);
       hosts.add(s);
       if(i == 1) {
         s.setFailed();
@@ -592,12 +667,12 @@ public class TestLoadBalancingRpcClient {
       hostList.append(name).append(" ");
     }
     p.put("hosts", hostList.toString().trim());
-    p.put("client.type", "com.logicalpractice.flume.api.LoadBalancingRpcClient");
+    p.put("client.type", "com.logicalpractice.flume.api.NettyLoadBalancingRpcClient");
     p.put("host-selector", "round_robin");
     p.put("backoff", "true");
 
     RpcClient c = RpcClientFactory.getInstance(p);
-    Assert.assertTrue(c instanceof com.logicalpractice.flume.api.LoadBalancingRpcClient);
+    Assert.assertTrue(c instanceof NettyLoadBalancingRpcClient);
 
     for (int i = 0; i < 3; i++) {
       c.append(EventBuilder.withBody("testing".getBytes()));
@@ -624,9 +699,14 @@ public class TestLoadBalancingRpcClient {
       c.append(EventBuilder.withBody("testing".getBytes()));
     }
 
-    Assert.assertEquals( 2 + 2 + 1 + (numEvents/3), hosts.get(0).getAppendCount());
-    Assert.assertEquals((numEvents/3), hosts.get(1).getAppendCount());
-    Assert.assertEquals(1 + 1 + 2 + (numEvents/3), hosts.get(2).getAppendCount());
+    int totalReceived = hosts.get(0).getAppendCount() + hosts.get(1).getAppendCount() + hosts.get(2).getAppendCount();
+
+    assertThat(totalReceived, equalTo(2 + 2 + 1 + 1 + 1 + 2 + numEvents));
+
+    // have to be a little fuzzy as the reconnects are asynchronous
+    assertThat((double) hosts.get(0).getAppendCount() - 5, closeTo(20.0, 2.0));
+    assertThat((double) hosts.get(1).getAppendCount(), closeTo(20.0, 2.0));
+    assertThat((double) hosts.get(2).getAppendCount() - 4, closeTo(20.0, 2.0));
   }
 
   @Test
@@ -649,12 +729,12 @@ public class TestLoadBalancingRpcClient {
       hostList.append(name).append(" ");
     }
     p.put("hosts", hostList.toString().trim());
-    p.put("client.type", "com.logicalpractice.flume.api.LoadBalancingRpcClient");
+    p.put("client.type", "com.logicalpractice.flume.api.NettyLoadBalancingRpcClient");
     p.put("host-selector", "round_robin");
     p.put("backoff", "true");
 
     RpcClient c = RpcClientFactory.getInstance(p);
-    Assert.assertTrue(c instanceof com.logicalpractice.flume.api.LoadBalancingRpcClient);
+    Assert.assertTrue(c instanceof NettyLoadBalancingRpcClient);
 
 
     for (int i = 0; i < 3; i++) {
@@ -668,9 +748,19 @@ public class TestLoadBalancingRpcClient {
       c.append(EventBuilder.withBody("testing".getBytes()));
     }
 
-    Assert.assertEquals(2 + (numEvents/3) , hosts.get(0).getAppendCount());
-    Assert.assertEquals(0 + (numEvents/3), hosts.get(1).getAppendCount());
-    Assert.assertEquals(1 + (numEvents/3), hosts.get(2).getAppendCount());
+    int totalReceived = hosts.get(0).getAppendCount() + hosts.get(1).getAppendCount() + hosts.get(2).getAppendCount();
+
+    assertThat(totalReceived, equalTo(2 + 1 + numEvents));
+
+    // have to be a little fuzzy as the reconnects are asynchronous
+    assertThat((double)hosts.get(0).getAppendCount() - 2, closeTo(20.0, 1.0));
+    assertThat((double)hosts.get(1).getAppendCount(),     closeTo(20.0, 1.0));
+    assertThat((double)hosts.get(2).getAppendCount() - 1, closeTo(20.0, 1.0));
+
+
+//    Assert.assertEquals(2 + (numEvents/3) , hosts.get(0).getAppendCount());
+//    Assert.assertEquals(0 + (numEvents/3), hosts.get(1).getAppendCount());
+//    Assert.assertEquals(1 + (numEvents/3), hosts.get(2).getAppendCount());
   }
 
   private List<Event> getBatchedEvent(int index) {

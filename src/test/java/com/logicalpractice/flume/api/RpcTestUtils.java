@@ -253,10 +253,20 @@ public class RpcTestUtils {
 
   public static class LoadBalancedAvroHandler implements AvroSourceProtocol {
 
-    private int appendCount = 0;
-    private int appendBatchCount = 0;
+    private final Logger logger;
 
-    private boolean failed = false;
+    public LoadBalancedAvroHandler() {
+      this(0);
+    }
+
+    public LoadBalancedAvroHandler(int idx) {
+      this.logger = LoggerFactory.getLogger(LoadBalancedAvroHandler.class.getName() + "-" + idx);
+    }
+
+    private volatile int appendCount = 0;
+    private volatile int appendBatchCount = 0;
+
+    private volatile boolean failed = false;
 
     public int getAppendCount() {
       return appendCount;
@@ -271,10 +281,12 @@ public class RpcTestUtils {
     }
 
     public void setFailed() {
+      logger.info("setFailed");
       this.failed = true;
     }
 
     public void setOK() {
+      logger.info("setOK");
       this.failed = false;
     }
 

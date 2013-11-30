@@ -57,7 +57,11 @@ public class NettySocketChannels {
           bossExecutor,
           workerExecutor);
     }
-    return sharableChannelFactory(socketChannelFactory);
+    return sharableChannelFactory(selfClosingChannelFactory(socketChannelFactory));
+  }
+
+  public static ChannelFactory selfClosingChannelFactory( ChannelFactory channelFactory ) {
+    return new SelfClosingSocketChannelFactory(channelFactory);
   }
 
   public static SharableChannelFactory sharableChannelFactory(final ChannelFactory socketChannelFactory) {
