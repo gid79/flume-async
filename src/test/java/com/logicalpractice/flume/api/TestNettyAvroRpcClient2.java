@@ -40,7 +40,7 @@ import java.util.List;
 import java.util.Properties;
 
 /**
- *
+ * this is basically a complete copy of the TestNettyAvroRpcClient from the flume source tree.
  */
 public class TestNettyAvroRpcClient2 {
 

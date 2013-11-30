@@ -30,6 +30,7 @@ public class TestAsyncNettyAvroRpcClient {
       assertTrue("Client should be active", isActive);
       client.append(EventBuilder.withBody("wheee!!!", UTF8));
 
+      // wait for
       AvroFlumeEvent event = handler.events().poll(500, TimeUnit.MILLISECONDS);
       assertThat("Unexpected null event, must have timed out",event, notNullValue());
       assertThat(new String(event.getBody().array(), UTF8), equalTo("wheee!!!"));
