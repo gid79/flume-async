@@ -596,7 +596,7 @@ public class TestLoadBalancingRpcClient {
     Assert.assertEquals(0, hosts.get(2).getAppendCount());
   }
   @Test
-  public void testRoundRobinBackoffInitialFailure() throws EventDeliveryException {
+  public void testRoundRobinBackoffInitialFailure() throws Exception {
     Properties p = new Properties();
     List<LoadBalancedAvroHandler> hosts =
         new ArrayList<LoadBalancedAvroHandler>();
@@ -616,8 +616,9 @@ public class TestLoadBalancingRpcClient {
     p.put("host-selector", "round_robin");
     p.put("backoff", "true");
 
-    RpcClient c = RpcClientFactory.getInstance(p);
-    Assert.assertTrue(c instanceof NettyLoadBalancingRpcClient);
+    NettyLoadBalancingRpcClient c = (NettyLoadBalancingRpcClient) RpcClientFactory.getInstance(p);
+//    Assert.assertTrue(c instanceof NettyLoadBalancingRpcClient);
+    c.awaitConnected();
 
     for (int i = 0; i < 3; i++) {
       c.append(EventBuilder.withBody("testing".getBytes()));

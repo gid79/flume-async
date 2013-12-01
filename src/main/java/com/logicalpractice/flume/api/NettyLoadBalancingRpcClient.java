@@ -185,6 +185,13 @@ public class NettyLoadBalancingRpcClient extends AbstractRpcClient {
     return isOpen;
   }
 
+  public void awaitConnected() {
+    List<ClientHolder> clients = new ArrayList<ClientHolder>(this.clients);
+    Iterator<ClientHolder> it = nextAvailableClientIterator(clients);
+    while( it.hasNext() )
+      it.next();
+  }
+
   private void throwIfClosed() throws EventDeliveryException {
     if (!isOpen) {
       throw new EventDeliveryException("Rpc Client is closed");
