@@ -26,4 +26,5 @@ dependencies {
     testCompile 'ch.qos.logback:logback-classic:1.0.13'
     testCompile 'net.sourceforge.argparse4j:argparse4j:0.4.2'
     testCompile 'org.apache.commons:commons-math3:3.2'
+    testCompile 'com.codahale.metrics:metrics-core:3.0.1'
 }
