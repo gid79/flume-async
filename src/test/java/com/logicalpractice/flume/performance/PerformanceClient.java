@@ -5,6 +5,8 @@ import com.codahale.metrics.Histogram;
 import com.codahale.metrics.Meter;
 import com.codahale.metrics.MetricRegistry;
 import com.codahale.metrics.Snapshot;
+import com.google.common.base.Joiner;
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.logicalpractice.flume.api.NettyLoadBalancingRpcClient;
 import net.sourceforge.argparse4j.ArgumentParsers;
@@ -13,6 +15,7 @@ import net.sourceforge.argparse4j.inf.ArgumentParserException;
 import net.sourceforge.argparse4j.inf.Namespace;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.Level;
+import org.apache.commons.lang.RandomStringUtils;
 import org.apache.flume.Event;
 import org.apache.flume.EventDeliveryException;
 import org.apache.flume.FlumeException;
@@ -22,6 +25,7 @@ import org.apache.flume.api.RpcClientFactory;
 import org.apache.flume.event.EventBuilder;
 import org.slf4j.LoggerFactory;
 
+import java.io.UnsupportedEncodingException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
@@ -51,6 +55,7 @@ public class PerformanceClient {
 
     Logger logger = (Logger) LoggerFactory.getLogger(PerformanceClient.class);
 
+    logger.info("{}", ns);
     int threads = ns.getInt("threads");
     int clients = ns.getInt("clients");
     CountDownLatch latch = new CountDownLatch(threads * clients + 1);
@@ -66,11 +71,8 @@ public class PerformanceClient {
     List<RpcClient> allClients = Lists.newLinkedList();
     try{
       for( int client = 0; client < clients ; client ++ ) {
-        Properties props = new Properties();
-        props.setProperty(RpcClientConfigurationConstants.CONFIG_CLIENT_TYPE, NettyLoadBalancingRpcClient.class.getName());
-        props.setProperty(RpcClientConfigurationConstants.CONFIG_HOSTS, "h1");
-        props.setProperty(RpcClientConfigurationConstants.CONFIG_HOSTS_PREFIX + "h1", "localhost:2001");
-        RpcClient rpcClient = RpcClientFactory.getInstance(props);
+        RpcClient rpcClient = buildClient(ns);
+        logger.info("{}", rpcClient.getClass().getName());
 
         for( int thread = 0; thread < threads; thread ++ ) {
           executor.submit(new ContinuousRun(latch, rpcClient, metrics, configuration));
@@ -102,6 +104,21 @@ public class PerformanceClient {
     }
   }
 
+  private static RpcClient buildClient(Namespace ns) {
+    Properties props = new Properties();
+    props.setProperty(RpcClientConfigurationConstants.CONFIG_CLIENT_TYPE, ns.getString("client_type"));
+    List<String> hosts = ns.getList("host");
+    List<String> hostNames = new ArrayList<>();
+    for (int i = 0; i < hosts.size(); i++) {
+      String name = "h" + i;
+      hostNames.add(name);
+      props.setProperty(RpcClientConfigurationConstants.CONFIG_HOSTS_PREFIX + name, hosts.get(i));
+    }
+    props.setProperty(RpcClientConfigurationConstants.CONFIG_HOSTS, Joiner.on(' ').join(hostNames));
+    System.out.println(props.toString());
+    return RpcClientFactory.getInstance(props);
+  }
+
   private static void configureLogging(Namespace ns) {
     LoggerContext lc = (LoggerContext) LoggerFactory.getILoggerFactory();
     Logger root = lc.getLogger(Logger.ROOT_LOGGER_NAME);
@@ -116,6 +133,11 @@ public class PerformanceClient {
   private static ArgumentParser buildArgumentParser() {
     ArgumentParser parser = ArgumentParsers.newArgumentParser("PerformanceClient");
 
+    parser.addArgument("--host")
+        .type(String.class)
+        .nargs("*")
+        .setDefault(Lists.newArrayList("localhost:2001"));
+
     parser.addArgument("-t","--threads")
         .type(Integer.class)
         .setDefault(1);
@@ -123,6 +145,10 @@ public class PerformanceClient {
     parser.addArgument("-c","--clients")
         .type(Integer.class)
         .setDefault(1);
+
+    parser.addArgument("--client-type")
+        .type(String.class)
+        .setDefault(NettyLoadBalancingRpcClient.class.getName());
 
     parser.addArgument("-v","--verbose")
         .action(storeTrue())
@@ -207,12 +233,18 @@ public class PerformanceClient {
     private final RpcClient client;
     private final ClientMetrics metrics;
     private final TaskConfiguration configuration;
+    private byte[] messageBody;
 
     ClientRunnable(CountDownLatch latch, RpcClient client, ClientMetrics metrics, TaskConfiguration configuration) {
       this.latch = latch;
       this.client = client;
       this.metrics = metrics;
       this.configuration = configuration;
+      try {
+        this.messageBody = RandomStringUtils.randomAscii(configuration.getMessageSize()).getBytes("US-ASCII");
+      } catch (UnsupportedEncodingException e) {
+        throw new RuntimeException(e);
+      }
     }
 
     @Override
@@ -242,7 +274,9 @@ public class PerformanceClient {
     protected void appendBatch(int count) {
       List<Event> events = new ArrayList<Event>(count);
       for (int i = 0; i < count; i++) {
-        events.add(EventBuilder.withBody(("event: " + i).getBytes()));
+        events.add(EventBuilder.withBody(
+            messageBody
+        ));
       }
 
       long start = System.nanoTime();
