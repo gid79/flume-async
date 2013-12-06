@@ -1,0 +1,17 @@
+ 
+description     "performance test servier"
+
+start on runlevel [2345]
+stop on runlevel [!2345]
+ 
+kill timeout 30
+ 
+limit nofile 40000 40000
+
+respawn
+respawn limit 10 5
+
+
+script
+  /usr/bin/java -jar /vagrant/build/performanceServer.jar -v 2>&1 > /vagrant/build/server-<%=node["idx"]%>.log
+end script

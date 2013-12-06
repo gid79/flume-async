@@ -60,7 +60,7 @@ public class RpcTestUtils {
   private static final Logger logger = LoggerFactory
       .getLogger(RpcTestUtils.class);
 
-  private static final String localhost = "localhost";
+  private static final String localhost = "0.0.0.0";
 
 
   /**
