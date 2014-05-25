@@ -1,8 +1,7 @@
 
 
 include_recipe "apt"
-
-package "openjdk-7-jdk"
+include_recipe "java"
 
 network = node["base"]["network"]
 adapter = network["adapter"]

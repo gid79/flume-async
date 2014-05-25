@@ -1,2 +1,3 @@
 
 depends "apt"
+depends "java"

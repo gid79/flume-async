@@ -8,6 +8,7 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
 
   config.vm.box = "precise64"
   config.vm.box_url = "http://files.vagrantup.com/precise64.box"
+  config.omnibus.chef_version = '11.12.4'
 
   (0.upto(3)).each do |idx|
     config.vm.define "host-#{idx}" do |cfg|
@@ -18,7 +19,16 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
         chef.add_recipe "server" if idx > 0
 
 
-        chef.json = { idx:idx }
+        chef.json = {
+          idx:idx,
+          java: {
+            install_flavor: "oracle",
+            jdk_version: "8",
+            oracle: {
+              accept_oracle_download_terms: true
+            }
+          }
+        }
       end
     end
   end
