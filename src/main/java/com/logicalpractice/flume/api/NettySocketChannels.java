@@ -84,7 +84,7 @@ public class NettySocketChannels {
     };
   }
 
-    /**
+  /**
    * Factory of SSL-enabled client channels
    * Copied from Avro's org.apache.flume.api.NettyAvroRpcClient
    */

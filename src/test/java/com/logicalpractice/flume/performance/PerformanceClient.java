@@ -29,10 +29,7 @@ import java.io.UnsupportedEncodingException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 
 import static net.sourceforge.argparse4j.impl.Arguments.storeTrue;
 
@@ -54,6 +51,7 @@ public class PerformanceClient {
     configureLogging(ns);
 
     Logger logger = (Logger) LoggerFactory.getLogger(PerformanceClient.class);
+    ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
 
     logger.info("{}", ns);
     int threads = ns.getInt("threads");
@@ -85,15 +83,17 @@ public class PerformanceClient {
           ", iterations:" + ns.getInt("iterations") +
           ", batchSize:" + ns.getInt("batch_size") +
           ", messageSize:" + ns.getInt("message_size"));
-
+      ScheduledFuture<?> metricsFuture = scheduler.scheduleAtFixedRate(metrics.reporter(),1 , 1 , TimeUnit.SECONDS);
       latch.countDown();
       latch.await();
 
       executor.shutdown();
       executor.awaitTermination(24, TimeUnit.HOURS);
-
+      metricsFuture.cancel(false);
+      scheduler.shutdown();
       logger.info("Test has finished :{}", metrics);
     } finally {
+
       for (RpcClient client : allClients) {
         try {
           client.close();
@@ -115,7 +115,12 @@ public class PerformanceClient {
       props.setProperty(RpcClientConfigurationConstants.CONFIG_HOSTS_PREFIX + name, hosts.get(i));
     }
     props.setProperty(RpcClientConfigurationConstants.CONFIG_HOSTS, Joiner.on(' ').join(hostNames));
-    System.out.println(props.toString());
+
+    if( ns.getBoolean("enable_backoff") ) {
+      props.setProperty(RpcClientConfigurationConstants.CONFIG_BACKOFF, "true");
+      props.setProperty(RpcClientConfigurationConstants.CONFIG_MAX_BACKOFF, ns.getInt("max_backoff").toString());
+    }
+//    System.out.println(props.toString());
     return RpcClientFactory.getInstance(props);
   }
 
@@ -167,6 +172,15 @@ public class PerformanceClient {
         .type(Integer.class)
         .setDefault(500);
 
+    parser.addArgument("--enable-backoff")
+        .type(Boolean.class)
+        .action(storeTrue())
+        .setDefault(false);
+
+    parser.addArgument("--max-backoff")
+        .type(Integer.class)
+        .setDefault(30000);
+
     return parser;
   }
 
@@ -197,14 +211,19 @@ public class PerformanceClient {
   static class ClientMetrics {
 
     private final Histogram appendBatch;
+    private final Meter appendBatchRate;
     private final Meter errorRate;
 
     ClientMetrics(MetricRegistry registry) {
       appendBatch = registry.histogram("appendBatch");
+      appendBatchRate = registry.meter("appendBatchRate");
       errorRate = registry.meter("errors");
     }
 
-    public void markAppendBatch(long timeNs) { appendBatch.update(timeNs); }
+    public void markAppendBatch(long timeNs) {
+      appendBatch.update(timeNs);
+      appendBatchRate.mark();
+    }
 
     public void markError(){ errorRate.mark(); }
 
@@ -217,6 +236,8 @@ public class PerformanceClient {
               millis(ss.get75thPercentile()),
               millis(ss.get95thPercentile()),
               millis(ss.get99thPercentile())) +
+          ", Count:" + appendBatch.getCount() +
+          ", Rate:" + String.format("%.1f", appendBatchRate.getOneMinuteRate()) + "/s" +
           ", Errors: " + errorRate.getCount() + " at "
           + String.format("%.1f", errorRate.getOneMinuteRate()) + "/s" ;
 
@@ -225,6 +246,15 @@ public class PerformanceClient {
       return nanos / 1000000.0;
     }
 
+    public Runnable reporter() {
+      final Logger logger = (Logger) LoggerFactory.getLogger(ClientMetrics.class);
+      return new Runnable(){
+        @Override
+        public void run() {
+          logger.info(ClientMetrics.this.toString());
+        }
+      };
+    }
   }
 
   static abstract class ClientRunnable implements Runnable {

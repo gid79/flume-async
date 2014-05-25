@@ -2,7 +2,7 @@
 
 include_recipe "apt"
 
-package "openjdk-7-jre-headless"
+package "openjdk-7-jdk"
 
 network = node["base"]["network"]
 adapter = network["adapter"]
