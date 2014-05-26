@@ -57,9 +57,6 @@ public class NettyLoadBalancingRpcClient extends AbstractRpcClient {
   private static final Logger LOGGER = LoggerFactory
       .getLogger(NettyLoadBalancingRpcClient.class);
 
-  private final ExecutorService callTimeoutPool = Executors.newCachedThreadPool(
-      new PrefixedDaemonThreadFactory("Avro client handshake"));
-
   private final ExecutorService connectPool = Executors.newCachedThreadPool(
       new PrefixedDaemonThreadFactory("Avro client connect"));
 
@@ -209,14 +206,6 @@ public class NettyLoadBalancingRpcClient extends AbstractRpcClient {
           LOGGER.warn("Failed to close client: " + client.hostInfo, ex);
         }
       }
-    }
-    callTimeoutPool.shutdown();
-    try {
-      callTimeoutPool.awaitTermination(connectTimeout, TimeUnit.MILLISECONDS);
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt(); //reset the interrupt flag
-    } finally {
-      callTimeoutPool.shutdownNow();
     }
     if( channelFactory != null )
       channelFactory.releaseExternalResources();
@@ -439,8 +428,7 @@ public class NettyLoadBalancingRpcClient extends AbstractRpcClient {
       @Override
       public RpcClient call() throws Exception {
         NettyAvroRpcClient2 client = new NettyAvroRpcClient2(
-            channelFactory,
-            callTimeoutPool
+            channelFactory
         );
         try {
           client.configure(getClientConfigurationProperties(hostInfo.getReferenceName()));

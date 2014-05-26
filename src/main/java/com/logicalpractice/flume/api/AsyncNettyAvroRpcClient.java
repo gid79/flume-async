@@ -115,11 +115,6 @@ public class AsyncNettyAvroRpcClient extends AbstractNettyAvroRpcClient {
   }
 
   @Override
-  protected void connected() throws IOException {
-    SpecificRequestor.getRemote(avroClient);
-  }
-
-  @Override
   public synchronized void close() {
     if( timeoutGenerator != null )
       timeoutGenerator.shutdown();

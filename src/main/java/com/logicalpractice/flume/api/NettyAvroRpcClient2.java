@@ -48,19 +48,15 @@ import java.util.concurrent.locks.ReentrantLock;
  */
 public class NettyAvroRpcClient2 extends AbstractNettyAvroRpcClient {
 
-  private ExecutorService callTimeoutPool;
-
   private static final Logger logger = LoggerFactory
       .getLogger(NettyAvroRpcClient2.class);
 
   /**
-   * This constructor is intended to be called from {@link org.apache.flume.api.RpcClientFactory}.
+   * This constructor is intended to be called from {@link com.logicalpractice.flume.api.NettyLoadBalancingRpcClient}.
    * A call to this constructor should be followed by call to configure().
    */
-  public NettyAvroRpcClient2(SharableChannelFactory socketChannelFactory,
-                             ExecutorService callTimeoutPool){
+  public NettyAvroRpcClient2(SharableChannelFactory socketChannelFactory){
     super(socketChannelFactory);
-    this.callTimeoutPool = callTimeoutPool;
   }
 
   @Override
@@ -92,36 +88,10 @@ public class NettyAvroRpcClient2 extends AbstractNettyAvroRpcClient {
     avroEvent.setBody(ByteBuffer.wrap(event.getBody()));
     avroEvent.setHeaders(toCharSeqMap(event.getHeaders()));
 
-    Future<Void> handshake;
     try {
-      // due to AVRO-1122, avroClient.append() may block
-      handshake = callTimeoutPool.submit(new Callable<Void>() {
-
-        @Override
-        public Void call() throws Exception {
-          avroClient.append(avroEvent, callFuture);
-          return null;
-        }
-      });
-    } catch (RejectedExecutionException ex) {
-      throw new EventDeliveryException(this + ": Executor error", ex);
-    }
-
-    try {
-      handshake.get(connectTimeout, TimeUnit.MILLISECONDS);
-    } catch (TimeoutException ex) {
-      throw new EventDeliveryException(this + ": Handshake timed out after " +
-          connectTimeout + " ms", ex);
-    } catch (InterruptedException ex) {
-      throw new EventDeliveryException(this + ": Interrupted in handshake", ex);
-    } catch (ExecutionException ex) {
-      throw new EventDeliveryException(this + ": RPC request exception", ex);
-    } catch (CancellationException ex) {
-      throw new EventDeliveryException(this + ": RPC request cancelled", ex);
-    } finally {
-      if (!handshake.isDone()) {
-        handshake.cancel(true);
-      }
+      avroClient.append(avroEvent, callFuture);
+    } catch (IOException e) {
+      throw new EventDeliveryException("IOException caught sending :" + event, e);
     }
 
     waitForStatusOK(callFuture, timeout, tu);
@@ -165,39 +135,12 @@ public class NettyAvroRpcClient2 extends AbstractNettyAvroRpcClient {
         avroEvents.add(avroEvent);
       }
 
-      final CallFuture<Status> callFuture = new CallFuture<Status>();
-
-      Future<Void> handshake;
-      try {
-        // due to AVRO-1122, avroClient.appendBatch() may block
-        handshake = callTimeoutPool.submit(new Callable<Void>() {
-
-          @Override
-          public Void call() throws Exception {
-            avroClient.appendBatch(avroEvents, callFuture);
-            return null;
-          }
-        });
-      } catch (RejectedExecutionException ex) {
-        throw new EventDeliveryException(this + ": Executor error", ex);
-      }
+      final CallFuture<Status> callFuture = new CallFuture<>();
 
       try {
-        handshake.get(connectTimeout, TimeUnit.MILLISECONDS);
-      } catch (TimeoutException ex) {
-        throw new EventDeliveryException(this + ": Handshake timed out after " +
-            connectTimeout + "ms", ex);
-      } catch (InterruptedException ex) {
-        throw new EventDeliveryException(this + ": Interrupted in handshake",
-            ex);
-      } catch (ExecutionException ex) {
-        throw new EventDeliveryException(this + ": RPC request exception", ex);
-      } catch (CancellationException ex) {
-        throw new EventDeliveryException(this + ": RPC request cancelled", ex);
-      } finally {
-        if (!handshake.isDone()) {
-          handshake.cancel(true);
-        }
+        avroClient.appendBatch(avroEvents, callFuture);
+      } catch (IOException e) {
+        throw new EventDeliveryException("IOException caught sending :" + events, e);
       }
 
       waitForStatusOK(callFuture, timeout, tu);

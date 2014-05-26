@@ -27,7 +27,6 @@ import org.apache.avro.ipc.specific.SpecificResponder;
 import org.apache.flume.Event;
 import org.apache.flume.EventDeliveryException;
 import org.apache.flume.FlumeException;
-import org.apache.flume.api.NettyAvroRpcClient;
 import org.apache.flume.api.RpcClientConfigurationConstants;
 import org.apache.flume.event.EventBuilder;
 import org.apache.flume.source.avro.AvroFlumeEvent;
@@ -47,10 +46,10 @@ import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
-import java.util.Queue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Helpers for Netty Avro RPC testing
@@ -158,8 +157,8 @@ public class RpcTestUtils {
     starterProp.setProperty(RpcClientConfigurationConstants.CONFIG_HOSTS_PREFIX + "h1",
         "127.0.0.1" + ":" + port);
     NettyAvroRpcClient2 client = new NettyAvroRpcClient2(
-        NettySocketChannels.newSocketChannelFactory(NettyConfiguration.fromProperties(starterProp).build()),
-        Executors.newCachedThreadPool());
+        NettySocketChannels.newSocketChannelFactory(NettyConfiguration.fromProperties(starterProp).build())
+    );
     client.configure(starterProp);
 
     return client;
@@ -406,6 +405,48 @@ public class RpcTestUtils {
       logger.info("Throwing: Received {} events from appendBatch()",
           events.size());
       throw new AvroRemoteException("Handler smash!");
+    }
+
+  }
+
+  /**
+   * A service that logs receipt of the request and then throws an exception
+   */
+  public static class DelayingAvroHandler implements AvroSourceProtocol {
+
+    private final long delay;
+    private final TimeUnit delayUnits;
+
+    public DelayingAvroHandler(long delay, TimeUnit delayUnits) {
+      this.delay = delay;
+      this.delayUnits = delayUnits;
+    }
+
+
+    @Override
+    public Status append(AvroFlumeEvent event) throws AvroRemoteException {
+      logger.info("Delaying: Received event from append(): {}",
+          new String(event.getBody().array(), Charset.forName("UTF8")));
+      delay();
+      return Status.OK;
+    }
+
+    @Override
+    public Status appendBatch(List<AvroFlumeEvent> events) throws
+        AvroRemoteException {
+      logger.info("Delaying: Received {} events from appendBatch()",
+          events.size());
+      delay();
+      return Status.OK;
+    }
+
+    private void delay() {
+      try {
+        delayUnits.sleep(delay);
+      } catch (InterruptedException e) {
+        logger.info("Delaying: interrupted");
+        Thread.currentThread().interrupt();
+      }
     }
 
   }

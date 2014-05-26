@@ -22,11 +22,10 @@ import org.apache.avro.ipc.Server;
 import org.apache.flume.Event;
 import org.apache.flume.EventDeliveryException;
 import org.apache.flume.FlumeException;
-import org.apache.flume.api.NettyAvroRpcClient;
+import org.apache.flume.api.RpcClient;
 import org.apache.flume.api.RpcClientConfigurationConstants;
 import com.logicalpractice.flume.api.RpcTestUtils.FailedAvroHandler;
 import com.logicalpractice.flume.api.RpcTestUtils.OKAvroHandler;
-import com.logicalpractice.flume.api.RpcTestUtils.ThrowingAvroHandler;
 import com.logicalpractice.flume.api.RpcTestUtils.UnknownAvroHandler;
 import org.apache.flume.event.EventBuilder;
 import org.junit.Assert;
@@ -38,7 +37,7 @@ import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
-import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 /**
  * this is basically a complete copy of the TestNettyAvroRpcClient from the flume source tree.
@@ -90,7 +89,7 @@ public class TestNettyAvroRpcClient2 {
    * @throws org.apache.flume.FlumeException
    * @throws org.apache.flume.EventDeliveryException
    */
-  @Test(expected=org.apache.flume.EventDeliveryException.class)
+  @Test(expected=FlumeException.class)
   public void testOKServerSimpleCompressionClientOnly() throws FlumeException,
       EventDeliveryException {
     RpcTestUtils.handlerSimpleAppendTest(new OKAvroHandler(), false, true, 6);
@@ -101,7 +100,7 @@ public class TestNettyAvroRpcClient2 {
    * @throws org.apache.flume.FlumeException
    * @throws org.apache.flume.EventDeliveryException
    */
-  @Test(expected=org.apache.flume.EventDeliveryException.class)
+  @Test(expected=FlumeException.class)
   public void testOKServerSimpleCompressionServerOnly() throws FlumeException,
       EventDeliveryException {
     RpcTestUtils.handlerSimpleAppendTest(new OKAvroHandler(), true, false, 6);
@@ -145,7 +144,7 @@ public class TestNettyAvroRpcClient2 {
    * @throws org.apache.flume.FlumeException
    * @throws org.apache.flume.EventDeliveryException
    */
-  @Test(expected=org.apache.flume.EventDeliveryException.class)
+  @Test(expected=FlumeException.class)
   public void testOKServerBatchCompressionServerOnly() throws FlumeException,
       EventDeliveryException {
     RpcTestUtils.handlerBatchAppendTest(new OKAvroHandler(), true, false, 6);
@@ -156,7 +155,7 @@ public class TestNettyAvroRpcClient2 {
    * @throws org.apache.flume.FlumeException
    * @throws org.apache.flume.EventDeliveryException
    */
-  @Test(expected=org.apache.flume.EventDeliveryException.class)
+  @Test(expected=FlumeException.class)
   public void testOKServerBatchCompressionClientOnly() throws FlumeException,
       EventDeliveryException {
     RpcTestUtils.handlerBatchAppendTest(new OKAvroHandler(), false, true, 6);
@@ -171,8 +170,8 @@ public class TestNettyAvroRpcClient2 {
   public void testUnableToConnect() throws FlumeException {
     @SuppressWarnings("unused")
     NettyAvroRpcClient2 client = new NettyAvroRpcClient2(
-        NettySocketChannels.newSocketChannelFactory(),
-        Executors.newCachedThreadPool());
+        NettySocketChannels.newSocketChannelFactory()
+    );
     try {
       Properties props = new Properties();
       props.setProperty(RpcClientConfigurationConstants.CONFIG_HOSTS, "localhost");
@@ -203,8 +202,7 @@ public class TestNettyAvroRpcClient2 {
     props.setProperty(RpcClientConfigurationConstants.CONFIG_BATCH_SIZE, "" + batchSize);
     try {
       client = new NettyAvroRpcClient2(
-          NettySocketChannels.newSocketChannelFactory(),
-          Executors.newCachedThreadPool()
+          NettySocketChannels.newSocketChannelFactory()
       );
       client.configure(props);
 
@@ -303,7 +301,7 @@ public class TestNettyAvroRpcClient2 {
   public void testThrowingServerSimple() throws FlumeException,
       EventDeliveryException {
 
-    RpcTestUtils.handlerSimpleAppendTest(new ThrowingAvroHandler());
+    RpcTestUtils.handlerSimpleAppendTest(new RpcTestUtils.ThrowingAvroHandler());
     logger.error("Throwing: I should never have gotten here!");
   }
 
@@ -335,8 +333,24 @@ public class TestNettyAvroRpcClient2 {
   @Test(expected=EventDeliveryException.class)
   public void testThrowingServerBatch() throws FlumeException,
       EventDeliveryException {
-
-    RpcTestUtils.handlerBatchAppendTest(new ThrowingAvroHandler());
+    RpcTestUtils.handlerBatchAppendTest(new RpcTestUtils.ThrowingAvroHandler());
     logger.error("Throwing: I should never have gotten here!");
+  }
+
+  @Test(expected = EventDeliveryException.class)
+  public void testReadTimeOut() throws EventDeliveryException {
+    Server server = RpcTestUtils.startServer(new RpcTestUtils.DelayingAvroHandler(5, TimeUnit.SECONDS));
+    RpcClient testObject = null;
+    try {
+      Properties props = new Properties();
+      props.setProperty(RpcClientConfigurationConstants.CONFIG_REQUEST_TIMEOUT, "1");
+      testObject = RpcTestUtils.getStockLocalClient(server.getPort(), props);
+
+      testObject.append(EventBuilder.withBody("wheee!!!", Charset.forName("UTF8")));
+      Assert.fail("Was expecting a timeout exception");
+    } finally {
+      if (testObject != null) testObject.close();
+      RpcTestUtils.stopServer(server);
+    }
   }
 }

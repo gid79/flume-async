@@ -74,6 +74,9 @@ public abstract class AbstractNettyAvroRpcClient extends AbstractRpcClient {
       avroClient =
           SpecificRequestor.getClient(AvroSourceProtocol.Callback.class,
               transceiver);
+      SpecificRequestor.getRemote(avroClient); // causes the the protocol to be synchronized
+                                               // with the remote, is synchronous
+
       connected();
     } catch (Throwable t) {
       try{
@@ -263,8 +266,6 @@ public abstract class AbstractNettyAvroRpcClient extends AbstractRpcClient {
         if (requestTimeout < 1000) {
           logger.warn("Request timeout specified less than 1s. " +
               "Using default value instead.");
-          requestTimeout =
-              RpcClientConfigurationConstants.DEFAULT_REQUEST_TIMEOUT_MILLIS;
         }
       } catch (NumberFormatException ex) {
         logger.error("Invalid request timeout specified: " + strReqTimeout);
